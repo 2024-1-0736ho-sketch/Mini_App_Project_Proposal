@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "PasteScope",
+  "version": "3.2",
+  "description": "Real-time originality monitor for Google Docs with time tracking and paste source detection.",
+
+  "icons": {
+    "16":  "icon16.png",
+    "32":  "icon32.png",
+    "48":  "icon48.png",
+    "128": "icon128.png"
+  },
+
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "alarms",
+    "idle"
+  ],
+
+  "host_permissions": [
+    "https://docs.google.com/*"
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "PasteScope",
+    "default_icon": {
+      "16":  "icon16.png",
+      "32":  "icon32.png",
+      "48":  "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/document/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["styles.css", "icon16.png", "icon32.png", "icon48.png", "icon128.png"],
+      "matches": ["https://docs.google.com/*"]
+    }
+  ]
+}

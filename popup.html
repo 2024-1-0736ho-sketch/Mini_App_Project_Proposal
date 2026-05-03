@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PasteScope</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #ffffff;
+      --surface:   #f8f9fa;
+      --surface2:  #f1f3f4;
+      --border:    #dadce0;
+      --border2:   #c5cae9;
+      --text:      #202124;
+      --muted:     #5f6368;
+      --muted2:    #9aa0a6;
+      --green:     #188038;
+      --green-dim: rgba(24,128,56,0.10);
+      --yellow:    #f29900;
+      --red:       #d93025;
+      --red-dim:   rgba(217,48,37,0.10);
+      --blue:      #1a73e8;
+      --blue-dim:  rgba(26,115,232,0.12);
+      --accent:    #1a73e8;
+    }
+
+    body {
+      width: 260px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Space Grotesk', sans-serif;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: none;
+    }
+
+    /* ─── Header ─── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(26,115,232,0.05) 0%, transparent 100%);
+      position: relative;
+    }
+
+    .logo-wrap { display: flex; align-items: center; gap: 9px; }
+    .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 2px 8px rgba(26,115,232,0.3); }
+    .logo-text { display: flex; flex-direction: column; gap: 1px; }
+    h1 { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); line-height: 1; }
+    .tagline { font-size: 9px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+
+    .toggle-wrap { display: flex; align-items: center; gap: 6px; }
+    .toggle-label { font-size: 9px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+    .switch { position: relative; width: 36px; height: 20px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: var(--surface2); border-radius: 99px; cursor: pointer; border: 1px solid var(--border2); transition: all 0.25s; }
+    .slider::before { content: ''; position: absolute; width: 13px; height: 13px; left: 3px; top: 3px; background: var(--muted); border-radius: 50%; transition: transform 0.25s, background 0.25s; }
+    input:checked + .slider { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 10px rgba(26,115,232,0.3); }
+    input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+
+    /* ─── Score ─── */
+    .score-section { padding: 18px 16px 16px; text-align: center; position: relative; }
+    .score-ring { position: relative; width: 90px; height: 90px; margin: 0 auto 12px; }
+    .score-ring svg { transform: rotate(-90deg); }
+    .score-ring .ring-track { fill: none; stroke: var(--surface2); stroke-width: 6; }
+    .score-ring .ring-fill { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1), stroke 0.4s; stroke-dasharray: 226; stroke-dashoffset: 226; }
+    .score-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+    .score-value { font-size: 26px; font-weight: 700; line-height: 1; font-family: 'JetBrains Mono', monospace; transition: color 0.4s; }
+    .score-lbl { font-size: 8px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+
+    .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; border: 1px solid transparent; transition: all 0.4s; }
+    .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .badge-green  { background: var(--green-dim); color: var(--green);  border-color: rgba(24,128,56,0.25); }
+    .badge-green .dot  { background: var(--green); }
+    .badge-yellow { background: rgba(242,153,0,0.10); color: var(--yellow); border-color: rgba(242,153,0,0.25); }
+    .badge-yellow .dot { background: var(--yellow); }
+    .badge-red    { background: var(--red-dim); color: var(--red); border-color: rgba(217,48,37,0.25); }
+    .badge-red .dot    { background: var(--red); }
+
+    /* ─── Stats grid ─── */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 14px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; }
+    .stat-card::before { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity 0.2s; }
+    .typed-card::before  { background: linear-gradient(135deg, var(--green-dim), transparent); }
+    .pasted-card::before { background: linear-gradient(135deg, var(--red-dim), transparent); }
+    .stat-card:hover { transform: translateY(-1px); }
+    .stat-card:hover::before { opacity: 1; }
+    .typed-card:hover  { border-color: rgba(24,128,56,0.35); }
+    .pasted-card:hover { border-color: rgba(217,48,37,0.35); }
+    .stat-icon  { font-size: 13px; margin-bottom: 5px; }
+    .stat-label { font-size: 9px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; }
+    .stat-value { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; }
+    .stat-sub   { font-size: 8px; color: var(--muted2); margin-top: 2px; }
+    #typed-val  { color: var(--green); }
+    #pasted-val { color: var(--red); }
+
+    /* ─── Session bar ─── */
+    .session-bar { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface); }
+    .session-item { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+    .session-item strong { color: var(--text); font-weight: 600; }
+    .session-sep { width: 1px; height: 12px; background: var(--border2); flex-shrink: 0; }
+
+    /* ─── Time Tracker ─── */
+    .time-section { padding: 10px 16px 12px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(26,115,232,0.02) 0%, transparent 100%); }
+    .time-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+    .time-section-title { font-size: 9px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+    .time-now-badge { display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 99px; font-size: 9px; font-weight: 600; letter-spacing: 0.03em; border: 1px solid transparent; transition: all 0.4s; }
+    .time-now-dot  { width: 5px; height: 5px; border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+    .tnb-green  { background: rgba(24,128,56,0.10);  color: var(--green);  border-color: rgba(24,128,56,0.2);  }
+    .tnb-green  .time-now-dot { background: var(--green); }
+    .tnb-yellow { background: rgba(242,153,0,0.10);  color: var(--yellow); border-color: rgba(242,153,0,0.2);  }
+    .tnb-yellow .time-now-dot { background: var(--yellow); }
+    .tnb-red    { background: rgba(217,48,37,0.10); color: var(--red);    border-color: rgba(217,48,37,0.2); }
+    .tnb-red    .time-now-dot { background: var(--red); }
+
+    .time-bars { display: flex; flex-direction: column; gap: 6px; }
+    .time-bar-row { display: flex; align-items: center; gap: 7px; }
+    .time-bar-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .time-bar-dot.active { background: var(--green); box-shadow: 0 0 4px rgba(52,211,153,0.4); }
+    .time-bar-dot.idle   { background: var(--yellow); }
+    .time-bar-dot.away   { background: var(--red); }
+    .time-bar-label { font-size: 9px; color: var(--muted); font-family: 'JetBrains Mono', monospace; width: 32px; }
+    .time-bar-outer { flex: 1; height: 4px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+    .time-bar-fill  { height: 100%; border-radius: 99px; width: 0%; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+    .time-bar-fill.active { background: var(--green); }
+    .time-bar-fill.idle   { background: var(--yellow); }
+    .time-bar-fill.away   { background: var(--red); }
+    .time-bar-val { font-size: 9px; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text); min-width: 28px; text-align: right; }
+
+    /* ─── Buttons ─── */
+    .btn-row { display: flex; gap: 7px; padding: 12px 16px 12px; }
+
+    .btn {
+      flex: 1; padding: 9px 0;
+      border: 1px solid var(--border2);
+      border-radius: 9px;
+      color: var(--muted);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      background: var(--surface);
+    }
+    .btn:hover { background: var(--surface2); color: var(--text); border-color: var(--muted); transform: translateY(-1px); }
+    .btn.primary { background: linear-gradient(135deg, var(--accent), #818cf8); border-color: transparent; color: #fff; box-shadow: 0 4px 14px rgba(99,102,241,0.3); }
+    .btn.primary:hover { box-shadow: 0 6px 20px rgba(99,102,241,0.45); transform: translateY(-2px); color: #fff; }
+    .btn.save:hover    { background: var(--green-dim); color: var(--green); border-color: rgba(52,211,153,0.4); }
+
+    /* ─── Session History Panel ─── */
+    .history-section {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .history-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; cursor: pointer; transition: background 0.15s;
+    }
+    .history-header:hover { background: var(--surface2); }
+    .history-header-title { font-size: 9px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 5px; }
+    .history-chevron { font-size: 10px; color: var(--muted2); transition: transform 0.2s; }
+    .history-chevron.open { transform: rotate(180deg); }
+
+    .history-list {
+      display: none;
+      flex-direction: column;
+      max-height: 160px;
+      overflow-y: auto;
+      padding: 0 10px 10px;
+    }
+    .history-list.open { display: flex; }
+    .history-list::-webkit-scrollbar { width: 3px; }
+    .history-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+
+    .history-empty { font-size: 10px; color: var(--muted2); text-align: center; padding: 14px 0; font-family: 'JetBrains Mono', monospace; }
+
+    .history-entry {
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 7px 8px; border-radius: 7px;
+      border: 1px solid var(--border);
+      margin-bottom: 5px;
+      background: var(--bg);
+      font-size: 9px;
+      position: relative;
+    }
+    .history-entry-top { display: flex; align-items: center; justify-content: space-between; }
+    .history-entry-title { color: var(--text); font-weight: 600; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+    .history-entry-time { color: var(--muted2); font-family: 'JetBrains Mono', monospace; font-size: 8px; flex-shrink: 0; }
+    .history-entry-stats { display: flex; gap: 8px; }
+    .history-stat { font-family: 'JetBrains Mono', monospace; font-size: 8px; }
+    .history-stat.orig { color: var(--green); }
+    .history-stat.pasted { color: var(--red); }
+    .history-stat.time { color: var(--muted); }
+
+    /* ─── Footer ─── */
+    footer { padding: 9px 16px 12px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .footer-privacy { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--muted2); }
+    .privacy-dot { width: 5px; height: 5px; background: var(--green); border-radius: 50%; box-shadow: 0 0 5px var(--green); }
+    footer kbd { background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; padding: 2px 5px; font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo-wrap">
+      <div class="logo-icon">📋</div>
+      <div class="logo-text">
+        <h1>PasteScope</h1>
+        <span class="tagline">Originality Monitor</span>
+      </div>
+    </div>
+    <div class="toggle-wrap">
+      <span class="toggle-label">HUD</span>
+      <label class="switch">
+        <input type="checkbox" id="hud-toggle" checked />
+        <span class="slider"></span>
+      </label>
+    </div>
+  </header>
+
+  <div class="score-section">
+    <div class="score-ring">
+      <svg width="90" height="90" viewBox="0 0 90 90">
+        <circle class="ring-track" cx="45" cy="45" r="36"/>
+        <circle class="ring-fill" id="ring-fill" cx="45" cy="45" r="36"/>
+      </svg>
+      <div class="score-center">
+        <div class="score-value" id="score-value">—</div>
+        <div class="score-lbl">original</div>
+      </div>
+    </div>
+    <div id="status-badge" class="status-badge badge-green">
+      <span class="dot"></span>
+      <span id="status-text">Excellent</span>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card typed-card" id="card-typed" title="Click to jump to typed text in log">
+      <div class="stat-icon">⌨</div>
+      <div class="stat-label">Typed</div>
+      <div class="stat-value" id="typed-val">0</div>
+      <div class="stat-sub">characters</div>
+    </div>
+    <div class="stat-card pasted-card" id="card-pasted" title="Click to jump to pasted text in log">
+      <div class="stat-icon">📋</div>
+      <div class="stat-label">Pasted</div>
+      <div class="stat-value" id="pasted-val">0</div>
+      <div class="stat-sub">characters</div>
+    </div>
+  </div>
+
+  <div class="session-bar">
+    <div class="session-item"><span>Total</span><strong id="total-val">0</strong></div>
+    <div class="session-sep"></div>
+    <div class="session-item"><span>Session</span><strong id="session-time">0m</strong></div>
+    <div class="session-sep"></div>
+    <div class="session-item"><span>Pastes</span><strong id="paste-count">0</strong></div>
+  </div>
+
+  <!-- Time Tracker -->
+  <div class="time-section">
+    <div class="time-section-header">
+      <span class="time-section-title">⏱ Time Tracker</span>
+      <span class="time-now-badge tnb-green" id="time-now-badge">
+        <span class="time-now-dot"></span>
+        <span id="time-now-text">Active</span>
+      </span>
+    </div>
+    <div class="time-bars">
+      <div class="time-bar-row">
+        <span class="time-bar-dot active"></span>
+        <span class="time-bar-label">Active</span>
+        <div class="time-bar-outer"><div class="time-bar-fill active" id="tb-active"></div></div>
+        <span class="time-bar-val" id="tv-active">0s</span>
+      </div>
+      <div class="time-bar-row">
+        <span class="time-bar-dot idle"></span>
+        <span class="time-bar-label">Idle</span>
+        <div class="time-bar-outer"><div class="time-bar-fill idle" id="tb-idle"></div></div>
+        <span class="time-bar-val" id="tv-idle">0s</span>
+      </div>
+      <div class="time-bar-row">
+        <span class="time-bar-dot away"></span>
+        <span class="time-bar-label">Away</span>
+        <div class="time-bar-outer"><div class="time-bar-fill away" id="tb-away"></div></div>
+        <span class="time-bar-val" id="tv-away">0s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="btn-row">
+    <button class="btn primary" id="btn-log">≡ Log</button>
+    <button class="btn save"    id="btn-save">⬇ Save PDF</button>
+  </div>
+
+  <!-- Session history accordion -->
+  <div class="history-section">
+    <div class="history-header" id="history-toggle">
+      <span class="history-header-title">🕐 Session History</span>
+      <span class="history-chevron" id="history-chevron">▾</span>
+    </div>
+    <div class="history-list" id="history-list">
+      <div class="history-empty" id="history-empty">No saved sessions yet</div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-privacy">
+      <span class="privacy-dot"></span>
+      <span>100% local · no uploads</span>
+    </div>
+    <kbd>Alt+Shift+P</kbd>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

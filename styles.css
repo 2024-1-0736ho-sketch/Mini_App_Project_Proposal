@@ -1,0 +1,17 @@
+/*
+  styles.css — PasteScope
+  Injected into Google Docs pages by manifest content_scripts.
+  All HUD/panel styles live inside Shadow DOM in content.js.
+  The host wrapper styles are set directly via JS inline styles
+  to guarantee pointer-events are never blocked by this stylesheet.
+*/
+
+#pastescope-host {
+  all: unset;
+  display: block;
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 2147483647;
+  /* pointer-events intentionally NOT set here — controlled via JS inline style */
+}
