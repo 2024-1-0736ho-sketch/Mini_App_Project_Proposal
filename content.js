@@ -1805,11 +1805,17 @@ function attachListeners() {
     pasteEvents.push(pasteEvent);
 
     // Persist pasteEvents and sessionStartTime to storage
-    chrome.storage.local.get("pasteEvents", (d) => {
-      const stored = d.pasteEvents || [];
-      stored.push(pasteEvent);
-      chrome.storage.local.set({ pasteEvents: stored });
-    });
+    try {
+  chrome.storage.local.get("pasteEvents", (d) => {
+    if (chrome.runtime.lastError) return;
+
+    const stored = d.pasteEvents || [];
+    stored.push(pasteEvent);
+    chrome.storage.local.set({ pasteEvents: stored });
+  });
+} catch (e) {
+  console.warn("Extension context lost:", e);
+}
 
     // Update source count chip + refresh log if open
     if (shadow) {
