@@ -2435,14 +2435,26 @@ if (window.top === window.self) {
   }
 
   function tmOnShow() {
+  try {
+    // Attempting to access chrome.runtime will throw an error 
+    if (!chrome.runtime?.id) {
+       return; 
+    }
+
     TM.lastInput = Date.now();
     if (!TM.started) return;
+  
     if (TM.currentState === "away") {
       tmSetState("active");
-      tmSave();
     }
-    chrome.runtime.sendMessage({ type: "TAB_VISIBLE" }, () => { if (chrome.runtime.lastError) return; });
+  } catch (e) {
+    if (e.message.includes("context invalidated")) {
+      // Silently fail; the extension is being updated/reloaded
+      return;
+    }
+    throw e; // Re-throw if it's a different, actual bug
   }
+}
 
   // ── Wire up events ────────────────────────────────────────────────────────
   // Keyboard and typing
