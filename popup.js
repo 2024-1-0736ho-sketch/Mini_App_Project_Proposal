@@ -502,6 +502,115 @@ document.getElementById("card-pasted").addEventListener("click", () => {
   window.close();
 });
 
+// ─── PASTE SOURCES ACCORDION ─────────────────────────────────────────────────
+const pasteSourcesToggle  = document.getElementById("paste-sources-toggle");
+const pasteSourcesChevron = document.getElementById("paste-sources-chevron");
+const pasteSourcesList    = document.getElementById("paste-sources-list");
+const pasteSourcesEmpty   = document.getElementById("paste-sources-empty");
+const pasteSourcesBadge   = document.getElementById("paste-sources-badge");
+
+let pasteSourcesOpen = false;
+
+// Eagerly load badge count on popup open
+chrome.storage.local.get("pasteEvents", (data) => {
+  const evts = data.pasteEvents || [];
+  updatePasteSourcesBadge(evts.length);
+});
+
+function updatePasteSourcesBadge(count) {
+  if (!pasteSourcesBadge) return;
+  pasteSourcesBadge.textContent = count;
+  if (count > 0) {
+    pasteSourcesBadge.classList.remove("zero");
+  } else {
+    pasteSourcesBadge.classList.add("zero");
+  }
+}
+
+pasteSourcesToggle.addEventListener("click", () => {
+  pasteSourcesOpen = !pasteSourcesOpen;
+  pasteSourcesList.classList.toggle("open", pasteSourcesOpen);
+  pasteSourcesChevron.classList.toggle("open", pasteSourcesOpen);
+  if (pasteSourcesOpen) loadPasteSources();
+});
+
+function loadPasteSources() {
+  chrome.storage.local.get("pasteEvents", (data) => {
+    const events = data.pasteEvents || [];
+    updatePasteSourcesBadge(events.length);
+
+    // Clear old entries (keep empty placeholder)
+    pasteSourcesList.querySelectorAll(".ps-src-entry").forEach(el => el.remove());
+
+    if (events.length === 0) {
+      pasteSourcesEmpty.style.display = "block";
+      return;
+    }
+    pasteSourcesEmpty.style.display = "none";
+
+    const srcTypeMap = {
+      website: { label: "Website",    icon: "🌐", cls: "stype-website" },
+      gdoc:    { label: "Google Doc", icon: "📄", cls: "stype-gdoc"    },
+      gdrive:  { label: "Drive",      icon: "📁", cls: "stype-gdrive"  },
+      local:   { label: "Local App",  icon: "💻", cls: "stype-local"   },
+      unknown: { label: "Unknown",    icon: "❓", cls: "stype-unknown"  },
+    };
+    function getSrcType(ev) {
+      if (ev.urlFoundInText && ev.sourceUrl) return { label: "In Text", icon: "🔍", cls: "stype-local" };
+      return srcTypeMap[ev.sourceType || "unknown"] || srcTypeMap.unknown;
+    }
+
+    // Newest paste first
+    [...events].reverse().forEach((ev, idx) => {
+      const num     = events.length - idx;
+      const type    = getSrcType(ev);
+      const timeStr = new Date(ev.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const preview = (ev.text || "").replace(/\n/g, " ").slice(0, 70) +
+                      ((ev.text || "").length > 70 ? "…" : "");
+
+      const el = document.createElement("div");
+      el.className = "ps-src-entry";
+
+      let urlHtml;
+      if (ev.sourceUrl) {
+        let domain = ev.sourceUrl;
+        try { domain = new URL(ev.sourceUrl).hostname.replace(/^www\./, ""); } catch (_) {}
+        urlHtml = `
+          <div class="ps-src-url-row">
+            <span class="ps-src-type-badge ${type.cls}">${type.icon} ${type.label}</span>
+            <a class="ps-src-url-link" href="${escHtml(ev.sourceUrl)}"
+               target="_blank" rel="noopener noreferrer"
+               title="${escHtml(ev.sourceUrl)}">🔗 ${escHtml(domain)}</a>
+          </div>`;
+      } else {
+        urlHtml = `
+          <div class="ps-src-url-row">
+            <span class="ps-src-type-badge ${type.cls}">${type.icon} ${type.label}</span>
+            <span class="ps-src-no-url">No URL detected</span>
+          </div>`;
+      }
+
+      el.innerHTML = `
+        <div class="ps-src-entry-top">
+          <span class="ps-src-entry-num">Paste #${num}</span>
+          <span class="ps-src-entry-time">${timeStr} · ${(ev.text||"").length}ch</span>
+        </div>
+        ${urlHtml}
+        <div class="ps-src-preview">"${escHtml(preview)}"</div>`;
+
+      pasteSourcesList.appendChild(el);
+    });
+  });
+}
+
+function escHtml(s) {
+  return (s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 // ─── SESSION HISTORY ACCORDION ────────────────────────────────────────────────
 let historyOpen = false;
 
@@ -552,6 +661,11 @@ function loadHistory() {
 // ─── LIVE UPDATE via storage listener ────────────────────────────────────────
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
+  if (changes.pasteEvents) {
+    const evts = changes.pasteEvents.newValue || [];
+    updatePasteSourcesBadge(evts.length);
+    if (pasteSourcesOpen) loadPasteSources();
+  }
   if (changes.stats) {
     renderStats(changes.stats.newValue);
   }

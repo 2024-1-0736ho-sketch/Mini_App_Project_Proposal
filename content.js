@@ -231,7 +231,34 @@ function buildUI(pos) {
         transition: opacity 0.2s, transform 0.2s; white-space: nowrap;
       }
       #ps-toast.visible { opacity: 1; transform: translateY(0); }
+      #ps-toast.has-source { pointer-events: auto; }
       .toast-icon { font-size: 12px; }
+
+      /* ── Source chip inside the paste toast ── */
+      #ps-toast-src {
+        display: none;
+        align-items: center;
+        gap: 3px;
+        padding: 2px 8px;
+        background: rgba(26,115,232,0.12);
+        border: 1px solid rgba(26,115,232,0.3);
+        border-radius: 99px;
+        color: var(--blue);
+        font-size: 9px;
+        font-weight: 700;
+        text-decoration: none;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        pointer-events: auto;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      #ps-toast-src:hover { background: rgba(26,115,232,0.22); }
+      #ps-toast-src.visible { display: inline-flex; }
 
       #ps-log {
         position: fixed; z-index: 2147483646;
@@ -551,6 +578,7 @@ function buildUI(pos) {
     <div id="ps-toast">
       <span class="toast-icon">📋</span>
       <span id="ps-toast-msg">Paste detected</span>
+      <a id="ps-toast-src" href="#" target="_blank" rel="noopener noreferrer"></a>
     </div>
 
     <!-- ── LOG PANEL (Tabbed: Full Log + Paste Log) ── -->
@@ -733,7 +761,10 @@ function buildUI(pos) {
     pasteEvents.forEach((ev, i) => {
       const timeStr   = new Date(ev.timestamp).toLocaleTimeString();
       const preview   = (ev.text || "").replace(/\n/g, " ").slice(0, 80) + (ev.text.length > 80 ? "…" : "");
-      const typeInfo  = srcTypeLabels[ev.sourceType || "unknown"] || srcTypeLabels.unknown;
+      // Show "🔍 In Text" badge when URL was extracted from the pasted content itself
+      const typeInfo  = ev.urlFoundInText && ev.sourceUrl
+        ? { label: "In Text", icon: "🔍", cls: "src-type-local" }
+        : (srcTypeLabels[ev.sourceType || "unknown"] || srcTypeLabels.unknown);
       const typeBadge = `<span class="src-type-badge ${typeInfo.cls}">${typeInfo.icon} ${typeInfo.label}</span>`;
 
       const urlHtml = ev.sourceUrl
@@ -863,7 +894,7 @@ function toggleHUD(forceState) {
 }
 
 // ─── SHOW TOAST ───────────────────────────────────────────────────────────────
-function showToast(chars) {
+function showToast(chars, sourceUrl, sourceType) {
   if (!shadow || !shadow._toast) return;
   const { toast, toastMsg } = shadow._toast;
   if (hudEl) {
@@ -874,9 +905,52 @@ function showToast(chars) {
     toast.style.right  = "auto";
   }
   toastMsg.textContent = `+${chars} char${chars !== 1 ? "s" : ""} pasted`;
+
+  // ── Source chip ─────────────────────────────────────────────────────────────
+  const toastSrc = shadow.getElementById("ps-toast-src");
+  if (toastSrc) {
+    if (sourceUrl) {
+      try {
+        const domain = new URL(sourceUrl).hostname.replace(/^www\./, "");
+        const icon = { website: "🌐", gdoc: "📄", gdrive: "📁", local: "💻" }[sourceType] || "🔗";
+        toastSrc.textContent = `${icon} ${domain}`;
+        toastSrc.href = sourceUrl;
+        toastSrc.classList.add("visible");
+        toast.classList.add("has-source");
+      } catch (_) {
+        toastSrc.classList.remove("visible");
+        toast.classList.remove("has-source");
+      }
+    } else {
+      // No URL found — show source type hint if available
+      if (sourceType && sourceType !== "unknown") {
+        const icon = { local: "💻", website: "🌐" }[sourceType] || "❓";
+        const label = { local: "Local App", website: "Web" }[sourceType] || "Unknown source";
+        toastSrc.textContent = `${icon} ${label}`;
+        toastSrc.removeAttribute("href");
+        toastSrc.style.color = "var(--muted)";
+        toastSrc.style.borderColor = "var(--border)";
+        toastSrc.style.background = "var(--surface)";
+        toastSrc.classList.add("visible");
+        toast.classList.add("has-source");
+      } else {
+        toastSrc.classList.remove("visible");
+        toast.classList.remove("has-source");
+      }
+    }
+  }
+
   toast.classList.add("visible");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("visible"), 2500);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove("visible");
+    // Reset source chip styles for next paste
+    if (toastSrc) {
+      toastSrc.style.color = "";
+      toastSrc.style.borderColor = "";
+      toastSrc.style.background = "";
+    }
+  }, 4000);
 }
 
 // ─── FORMAT MS ────────────────────────────────────────────────────────────────
@@ -1336,7 +1410,15 @@ function renderLog(_segments, _typed, _pasted, _cursorIdx) {
       local:    { label: "Local App",  cls: "src-type-local",  icon: "💻" },
       unknown:  { label: "Unknown",    cls: "src-type-unknown", icon: "❓" },
     };
-    const typeInfo = srcTypeLabels[srcType] || srcTypeLabels.unknown;
+    // If URL was extracted from the pasted text (not clipboard metadata), show a distinct label
+    function getTypeInfo(ev) {
+      const info = srcTypeLabels[ev.sourceType || "unknown"] || srcTypeLabels.unknown;
+      if (ev.urlFoundInText && ev.sourceUrl) {
+        return { ...info, label: "In Text", icon: "🔍", cls: "src-type-local" };
+      }
+      return info;
+    }
+    const typeInfo  = getTypeInfo(ev);
     const typeBadge = `<span class="src-type-badge ${typeInfo.cls}">${typeInfo.icon} ${typeInfo.label}</span>`;
 
     let sourceHtml;
@@ -1728,80 +1810,123 @@ function attachListeners() {
     const text = (e.clipboardData || window.clipboardData).getData("text") || "";
     if (!text) return;
 
-    // ── Source URL extraction (7-strategy) ───────────────────
-    // Chrome embeds the copy-source page URL in several clipboard HTML locations.
-    // We try 7 strategies in priority order and URL-validate the winner.
-    let sourceUrl = null;
+    // ── Source URL extraction (10-strategy) ─────────────────────────────────
+    //
+    // Priority order (highest confidence first):
+    //   S0 · text/uri-list   — W3C standard; browser sets this when you copy a URL or link
+    //   S1 · text/x-moz-url  — Firefox "url\ntitle" clipboard type
+    //   S2 · CF_HTML SourceURL header  — Chrome's internal copy-source annotation
+    //   S3 · Legacy "URL:" CF_HTML header  — older clipboard managers
+    //   S4 · <base href>     — Chrome injects the page's <base> into copied HTML
+    //   S5 · <!-- URL: --> comment  — some browsers/extensions add this
+    //   S6 · SourceURL: text annotation  — Notion, Confluence, copy-managers
+    //   S7 · <link rel="canonical">  — injected by page
+    //   S8 · <meta property="og:url">  — injected by page
+    //   S9 · First <a href> in copied HTML  — last HTML fallback
+    //  S10 · URL found inside the pasted text itself  — final plain-text fallback
+    //
+    // Each strategy validates its candidate with new URL() before accepting it.
+    // ─────────────────────────────────────────────────────────────────────────
+    let sourceUrl    = null;
     let sourceDomain = null;
+    let _urlFoundInText = false;  // flag: URL came from text content, not metadata
+
+    function _trySetUrl(raw) {
+      if (sourceUrl || !raw) return false;
+      try {
+        const s = raw.trim();
+        const parsed = new URL(s);
+        if (["mailto:", "javascript:", "data:", "blob:"].some(p => s.startsWith(p))) return false;
+        sourceUrl    = parsed.origin + parsed.pathname + (parsed.search || "");
+        sourceDomain = parsed.hostname.replace(/^www\./, "");
+        return true;
+      } catch (_) { return false; }
+    }
+
     try {
-      const html = (e.clipboardData || window.clipboardData).getData("text/html") || "";
-      if (html) {
-        // S1: Chrome plain-text header block "Version:0.9\nStartHTML:...\nURL:https://..."
-        const s1 = html.match(/(?:^|\n)URL:[ \t]*(https?:\/\/[^\r\n]+)/m);
-        // S2: <base href="..."> injected by Chrome from the source page's <base>
-        const s2 = html.match(/<base[^>]+href=["']([^"']+)["']/i);
-        // S3: <!--Source|PageURL: ...--> comment Chrome sometimes adds
-        const s3 = html.match(/<!--\s*(?:Source|Page)?URL:\s*(https?:\/\/[^\s>-]+)/i);
-        // S4: SourceURL: annotation (Notion, Confluence, copy managers)
-        const s4 = html.match(/SourceURL:\s*(https?:\/\/[^\s\n<]+)/);
-        // S5: <link rel="canonical" href="...">
-        const s5 = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
-                || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
-        // S6: <meta property="og:url" content="...">
-        const s6 = html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i)
-                || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i);
-        // S7: First absolute <a href> in the copied HTML
-        const s7 = html.match(/<a[^>]+href=["'](https?:\/\/[^"'>]+)["']/i);
+      const cd = e.clipboardData || window.clipboardData;
 
-        const candidate = (s1 && s1[1].trim())
-                       || (s2 && s2[1].trim())
-                       || (s3 && s3[1].trim())
-                       || (s4 && s4[1].trim())
-                       || (s5 && s5[1].trim())
-                       || (s6 && s6[1].trim())
-                       || (s7 && s7[1].trim())
-                       || null;
+      // S0: text/uri-list — W3C standard, most reliable when copying a hyperlink or URL bar
+      const uriList = cd.getData("text/uri-list") || "";
+      if (uriList) {
+        const firstUri = uriList.split(/\r?\n/).find(
+          line => !line.startsWith("#") && /^https?:\/\//i.test(line.trim())
+        );
+        _trySetUrl(firstUri);
+      }
 
-        if (candidate) {
-          try {
-            const parsed = new URL(candidate);
-            const isBad  = ["mailto:", "javascript:", "data:"].some(p => candidate.startsWith(p));
-            if (!isBad) {
-              sourceUrl    = parsed.origin + parsed.pathname + (parsed.search || "");
-              sourceDomain = parsed.hostname.replace(/^www\./, "");
-            }
-          } catch (_) { /* invalid URL — ignore */ }
+      // S1: text/x-moz-url — Firefox stores "url\ntitle" in this type
+      if (!sourceUrl) {
+        const mozUrl = cd.getData("text/x-moz-url") || "";
+        if (mozUrl) _trySetUrl(mozUrl.split("\n")[0]);
+      }
+
+      // S2–S9: Parse clipboard HTML metadata
+      if (!sourceUrl) {
+        const html = cd.getData("text/html") || "";
+        if (html) {
+          // S2: Chrome CF_HTML "SourceURL:" header (most common in Chrome 100+)
+          const s2  = html.match(/SourceURL:\s*(https?:\/\/[^\r\n]+)/);
+          // S3: Older CF_HTML "URL:" header
+          const s3  = html.match(/(?:^|\n)URL:[ \t]*(https?:\/\/[^\r\n]+)/m);
+          // S4: <base href="..."> — Chrome injects the source page's <base>
+          const s4  = html.match(/<base[^>]+href=["']([^"']+)["']/i);
+          // S5: <!-- Source|PageURL: ... --> HTML comment
+          const s5  = html.match(/<!--\s*(?:Source|Page)?URL:\s*(https?:\/\/[^\s>-]+)/i);
+          // S6: SourceURL: plain-text annotation (Notion, Confluence, Obsidian)
+          const s6  = html.match(/SourceURL:\s*(https?:\/\/[^\s\n<]+)/);
+          // S7: <link rel="canonical">
+          const s7  = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
+                   || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
+          // S8: <meta property="og:url">
+          const s8  = html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i)
+                   || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i);
+          // S9: First absolute <a href> in the copied HTML
+          const s9  = html.match(/<a[^>]+href=["'](https?:\/\/[^"'>]+)["']/i);
+
+          const candidate = (s2 && s2[1].trim())
+                         || (s3 && s3[1].trim())
+                         || (s4 && s4[1].trim())
+                         || (s5 && s5[1].trim())
+                         || (s6 && s6[1].trim())
+                         || (s7 && s7[1].trim())
+                         || (s8 && s8[1].trim())
+                         || (s9 && s9[1].trim())
+                         || null;
+
+          _trySetUrl(candidate);
         }
       }
+
+      // S10: Scan the pasted text itself for a URL — works when metadata is absent
+      // (e.g. copying from PDF viewers, terminals, plain-text email clients).
+      if (!sourceUrl && text) {
+        const urlInText = text.match(/https?:\/\/[^\s\n\r<>"'`\]]{10,}/);
+        if (urlInText && _trySetUrl(urlInText[0])) {
+          _urlFoundInText = true;  // mark so we can label it differently in the UI
+        }
+      }
+
     } catch (_) {}
 
     // ── Source type classification ────────────────────────────────────────────
-    // Classify the paste source into one of: website | gdoc | gdrive | local | unknown
     let sourceType = "unknown";
     if (sourceUrl) {
       try {
         const ph = new URL(sourceUrl).hostname;
-        if (ph.includes("docs.google.com"))   sourceType = "gdoc";
+        if      (ph.includes("docs.google.com"))  sourceType = "gdoc";
         else if (ph.includes("drive.google.com")) sourceType = "gdrive";
-        else                                   sourceType = "website";
+        else                                      sourceType = "website";
       } catch (_) { sourceType = "website"; }
     } else {
-      // No URL found in clipboard HTML.
-      // Heuristics for local/native app pastes:
-      // – If the HTML was non-empty but had no extractable URL → clipboard manager or local app
-      // – If text was pasted with no HTML at all → plain text from any source (terminal, notepad, etc.)
       try {
         const rawHtml = (e.clipboardData || window.clipboardData).getData("text/html") || "";
-        if (rawHtml.length > 0) {
-          sourceType = "local"; // has HTML structure but no parseable URL → likely native app
-        } else {
-          sourceType = "unknown"; // plain text only — could be anything
-        }
+        sourceType = rawHtml.length > 0 ? "local" : "unknown";
       } catch (_) {}
     }
 
     // Record this paste event
-    const pasteEvent = { text, sourceUrl, sourceDomain, sourceType, timestamp: Date.now() };
+    const pasteEvent = { text, sourceUrl, sourceDomain, sourceType, urlFoundInText: _urlFoundInText, timestamp: Date.now() };
     pasteEvents.push(pasteEvent);
 
     // Persist pasteEvents and sessionStartTime to storage
@@ -1830,7 +1955,7 @@ function attachListeners() {
     charMap.splice(cursorIdx, 0, ...markers);
     cursorIdx += text.length;
     chrome.runtime.sendMessage({ type: "INCREMENT_PASTE" });
-    showToast(text.length);
+    showToast(text.length, sourceUrl, sourceType);
     sendEvent({ type: "SYNC_MAP", charMap, cursorIdx });
     tmOnInput(); // ensure tracker starts on paste too
   }, true);
