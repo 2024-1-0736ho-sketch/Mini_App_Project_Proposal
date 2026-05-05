@@ -402,31 +402,99 @@ btnSave.addEventListener("click", () => {
       } else {
         for (let i = 0; i < pasteEvts.length; i++) {
           const ev = pasteEvts[i];
-          ensurePage(20);
 
-          // Entry card background
-          const cardH = ev.sourceUrl ? 22 : 16;
+          // Determine source label and color for the badge
+          const srcLabel = ev.urlFoundInText  ? "In Text"
+                         : ev.urlFromTab      ? "Tab History"
+                         : ev.sourceType === "gdoc"    ? "Google Doc"
+                         : ev.sourceType === "gdrive"  ? "Google Drive"
+                         : ev.sourceType === "website" ? "Website"
+                         : ev.sourceType === "local"   ? "Local App"
+                         :                               "Unknown";
+          const srcColor = (ev.sourceType === "website" || ev.urlFoundInText || ev.urlFromTab) ? C.blue
+                         : ev.sourceType === "local" ? C.mid
+                         : C.green;
+
+          // Calculate card height:
+          //  - Always: header row (paste #, time badge, source type badge) = 10
+          //  - If URL: wrapped URL lines
+          //  - Always: preview text
+          const urlText    = ev.sourceUrl || "";
+          const urlLines   = urlText ? doc.splitTextToSize(urlText, maxW - 8) : [];
+          const previewTxt = `"${(ev.text || "").replace(/\n/g, " ").slice(0, 120)}${(ev.text || "").length > 120 ? "…" : ""}"`;
+          const previewLines = doc.splitTextToSize(previewTxt, maxW - 8);
+
+          const cardH = 8                             // header
+                      + (urlLines.length  * 5 + (urlLines.length  ? 3 : 0))  // URL block
+                      + (previewLines.length * 4.5 + 3);                      // preview block
+
+          ensurePage(cardH + 5);
+
+          // Card background
           setFill([232, 240, 254]);
           doc.roundedRect(margin, y, maxW, cardH, 2, 2, "F");
 
-          doc.setFontSize(8); doc.setFont(undefined, "bold"); setColor(C.accent);
-          doc.text(`Paste #${i + 1}`, margin + 3, y + 5);
+          // ── Header row ────────────────────────────────────────────────────────
+          const headerY = y + 6;
 
-          doc.setFont(undefined, "normal"); setColor(C.muted);
-          doc.text(new Date(ev.timestamp).toLocaleTimeString(), pageW - margin - 3, y + 5, { align: "right" });
+          // Paste number
+          doc.setFontSize(9); doc.setFont(undefined, "bold"); setColor(C.accent);
+          doc.text(`Paste #${i + 1}`, margin + 3, headerY);
 
-          if (ev.sourceUrl) {
-            doc.setFontSize(8); setColor(C.blue);
-            const urlTrimmed = ev.sourceUrl.length > 85 ? ev.sourceUrl.slice(0, 85) + "…" : ev.sourceUrl;
-            doc.text(urlTrimmed, margin + 3, y + 12);
+          // Timestamp (right-aligned)
+          doc.setFontSize(8); doc.setFont(undefined, "normal"); setColor(C.muted);
+          const timeStr = new Date(ev.timestamp).toLocaleTimeString();
+          doc.text(timeStr, pageW - margin - 3, headerY, { align: "right" });
+
+          // Source type badge (centered)
+          const badgeW = 28;
+          const badgeX = pageW / 2 - badgeW / 2;
+          setFill(srcColor);
+          doc.roundedRect(badgeX, headerY - 4.5, badgeW, 6, 1.5, 1.5, "F");
+          doc.setFontSize(6.5); doc.setFont(undefined, "bold"); setColor(C.white);
+          doc.text(srcLabel.toUpperCase(), pageW / 2, headerY, { align: "center" });
+          doc.setFont(undefined, "normal");
+
+          let curY = headerY + 5;
+
+          // ── Source URL block ──────────────────────────────────────────────────
+          if (urlLines.length > 0) {
+            // "SOURCE:" label
+            doc.setFontSize(7); doc.setFont(undefined, "bold"); setColor(C.mid);
+            doc.text("SOURCE:", margin + 3, curY);
+            curY += 4.5;
+
+            // URL text (blue, each line is a separate clickable link segment)
+            doc.setFontSize(8); doc.setFont(undefined, "normal"); setColor(C.blue);
+            for (const line of urlLines) {
+              doc.text(line, margin + 3, curY);
+              curY += 4.5;
+            }
+
+            // Invisible link overlay covering the whole URL block
+            const linkH  = urlLines.length * 4.5;
+            const linkY  = curY - linkH - urlLines.length * 0.5;
+            const linkW  = maxW - 6;
+            try {
+              doc.link(margin + 3, linkY - 3, linkW, linkH + 2, { url: urlText });
+            } catch (_) {}
+
+            curY += 1;
+          } else {
+            // No URL detected
+            doc.setFontSize(7.5); doc.setFont(undefined, "italic"); setColor(C.muted);
+            doc.text("No source URL detected", margin + 3, curY);
+            curY += 5;
           }
 
-          const previewY = ev.sourceUrl ? y + 18 : y + 11;
-          const preview  = (ev.text || "").replace(/\n/g, " ").slice(0, 110) + (ev.text.length > 110 ? "…" : "");
-          doc.setFontSize(7.5); setColor(C.mid);
-          doc.text(`"${preview}"`, margin + 3, previewY);
+          // ── Preview text ──────────────────────────────────────────────────────
+          doc.setFontSize(7.5); doc.setFont(undefined, "normal"); setColor(C.mid);
+          for (const line of previewLines) {
+            doc.text(line, margin + 3, curY);
+            curY += 4.5;
+          }
 
-          y += cardH + 4;
+          y += cardH + 5;
         }
       }
 
@@ -556,7 +624,8 @@ function loadPasteSources() {
       unknown: { label: "Unknown",    icon: "❓", cls: "stype-unknown"  },
     };
     function getSrcType(ev) {
-      if (ev.urlFoundInText && ev.sourceUrl) return { label: "In Text", icon: "🔍", cls: "stype-local" };
+      if (ev.urlFoundInText && ev.sourceUrl) return { label: "In Text",     icon: "🔍", cls: "stype-local" };
+      if (ev.urlFromTab     && ev.sourceUrl) return { label: "Tab History", icon: "🗂", cls: "stype-website" };
       return srcTypeMap[ev.sourceType || "unknown"] || srcTypeMap.unknown;
     }
 

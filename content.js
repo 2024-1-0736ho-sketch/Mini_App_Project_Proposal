@@ -26,6 +26,10 @@ let pasteEvents = [];
 // Session start time (ms) — set when tracking first begins
 let sessionStartTime = null;
 
+// Track which paste entry indices the user has manually expanded
+// so renderLog can restore them after each re-render.
+const expandedPasteEntries = new Set();
+
 // Pre-existing document content (loaded on open — shown in log but NOT counted in stats)
 let existingDocText = "";
 
@@ -1455,15 +1459,38 @@ function renderLog(_segments, _typed, _pasted, _cursorIdx) {
 
   logContent.querySelectorAll(".paste-entry-expand").forEach(btn => {
     btn.addEventListener("click", () => {
-      const idx  = btn.getAttribute("data-idx");
+      const idx  = parseInt(btn.getAttribute("data-idx"), 10);
       const body = logContent.querySelector(`#paste-body-${idx}`);
       if (!body) return;
       const isExpanded = body.classList.toggle("expanded");
+      if (isExpanded) {
+        expandedPasteEntries.add(idx);
+      } else {
+        expandedPasteEntries.delete(idx);
+        // Scroll the entry back into view so the collapsed card stays visible
+        btn.closest(".paste-entry")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
       btn.textContent = isExpanded ? "show less ▴" : "show more ▾";
     });
   });
 
-  logContent.scrollTop = logContent.scrollHeight;
+  // Restore any entries the user had previously expanded (survive re-renders)
+  expandedPasteEntries.forEach(idx => {
+    const body = logContent.querySelector(`#paste-body-${idx}`);
+    const btn  = logContent.querySelector(`.paste-entry-expand[data-idx="${idx}"]`);
+    if (body) body.classList.add("expanded");
+    if (btn)  btn.textContent = "show less ▴";
+  });
+
+  // Only auto-scroll to the bottom when a brand-new paste was just added
+  // (i.e. the event count grew). Don't scroll on every HUD refresh so that
+  // clicking "show more" doesn't immediately jump the user away.
+  const _newCount = events.length;
+  if (typeof logContent._lastPasteCount === "undefined") logContent._lastPasteCount = 0;
+  if (_newCount > logContent._lastPasteCount) {
+    logContent.scrollTop = logContent.scrollHeight;
+  }
+  logContent._lastPasteCount = _newCount;
 }
 
 // ─── MESSAGING ────────────────────────────────────────────────────────────────
@@ -2516,6 +2543,7 @@ if (window.top === window.self) {
     // Reset paste sources
     pasteEvents = [];
     sessionStartTime = null;
+    expandedPasteEntries.clear();
     if (shadow) {
       const chip = shadow.getElementById("ps-session-start-chip");
       if (chip) chip.textContent = "Session: —";

@@ -1,9 +1,45 @@
-// background.js — PasteScope v3.2
+// background.js — PasteScope v3.3
 // The alarm is a safety net for away-time when Chrome throttles content
 // scripts in hidden tabs. content.js handles all active/idle/paused tracking.
 
 const TIME_TICK_S    = 30;
 const IDLE_THRESHOLD = 120_000; // 2 min
+
+// ─── Tab URL tracking (S11 paste source fallback) ────────────────────────────
+// When a user copies text from a webpage and then pastes into Google Docs,
+// the "source" tab is usually the last active non-Docs tab. We track it here
+// so content.js can request it as a fallback when clipboard metadata has no URL.
+//
+// We store { url, title, favicon } so the PDF and UI can show a rich label.
+let lastNonDocsTab = null;
+
+function _recordTab(tab) {
+  if (!tab || !tab.url) return;
+  const url = tab.url;
+  // Only track real HTTP/S pages — skip chrome://, about:, extensions, and Docs itself
+  if (!url.startsWith("http")) return;
+  if (url.includes("docs.google.com")) return;
+  lastNonDocsTab = {
+    url:     url,
+    title:   tab.title   || "",
+    favicon: tab.favIconUrl || "",
+  };
+}
+
+// Track whenever a tab becomes active
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) return;
+    _recordTab(tab);
+  });
+});
+
+// Track URL changes in the active tab (e.g. SPA navigation)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete") return;
+  if (!tab.active) return;
+  _recordTab(tab);
+});
 
 // ─── Periodic alarm (away-time safety net for hidden tabs) ───────────────────
 chrome.alarms.create("ps-time-tick", { periodInMinutes: TIME_TICK_S / 60 });
@@ -28,13 +64,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     "SYNC_MAP", "GET_STATS", "RESET_STATS", "TOGGLE_HUD",
     "GET_HUD_STATE", "INCREMENT_PASTE",
     "ACTIVITY_PING", "TAB_VISIBLE", "TAB_HIDDEN", "GET_TIME_STATS",
-    "PAUSE_TRACKING", "RESUME_TRACKING", "FETCH_DOC_TEXT", "GET_TAB_ID"
+    "PAUSE_TRACKING", "RESUME_TRACKING", "FETCH_DOC_TEXT", "GET_TAB_ID",
+    "GET_LAST_SOURCE_URL"
   ];
   if (!VALID.includes(msg.type)) return false;
 
   // ── GET_TAB_ID: return the sender tab's id to content.js ───────────────────
   if (msg.type === "GET_TAB_ID") {
     sendResponse({ tabId: sender.tab ? sender.tab.id : null });
+    return true;
+  }
+
+  // ── GET_LAST_SOURCE_URL: return the last non-Docs tab URL ──────────────────
+  // Used by content.js as paste source strategy S11 when clipboard metadata
+  // does not carry a URL (e.g. copy from PDF viewer, terminal, local app).
+  if (msg.type === "GET_LAST_SOURCE_URL") {
+    sendResponse(lastNonDocsTab
+      ? { url: lastNonDocsTab.url, title: lastNonDocsTab.title, favicon: lastNonDocsTab.favicon }
+      : { url: null }
+    );
     return true;
   }
 
